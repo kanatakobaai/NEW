@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(open \"/Users/kota/Desktop/AIで新しい会社作る/projects/ai-consulting/seminar/presentation.html\")"
+    ]
+  }
+}
