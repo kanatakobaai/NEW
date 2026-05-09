@@ -1,18 +1,28 @@
 require('dotenv').config();
 const express = require('express');
 const line = require('@line/bot-sdk');
+const rateLimit = require('express-rate-limit');
+const cron = require('node-cron');
 const path = require('path');
 const fs = require('fs');
 const { handleMessage } = require('./handlers/messageHandler');
 const { constructWebhookEvent } = require('./services/stripe');
-const { createCheckoutSession } = require('./services/stripe');
 const db = require('./services/database');
 const { ensureJapaneseFont } = require('./services/fontManager');
 const { menuFlex } = require('./services/flexMessages');
 const { tokushoho, privacy, terms } = require('./handlers/legalPages');
+const { validateEnv, signInvoice, verifyInvoiceSig } = require('./security');
+
+validateEnv();
 
 const app = express();
+app.set('trust proxy', 1); // behind Railway proxy
 const PORT = process.env.PORT || 3000;
+
+// Rate limiting
+const webhookLimit = rateLimit({ windowMs: 60 * 1000, max: 120 });
+const downloadLimit = rateLimit({ windowMs: 60 * 1000, max: 30 });
+const generalLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 200 });
 
 const lineConfig = {
   channelSecret: process.env.LINE_CHANNEL_SECRET,
@@ -23,7 +33,7 @@ const client = new line.messagingApi.MessagingApiClient({
 });
 
 // ── LINE webhook ─────────────────────────────────────
-app.post('/webhook', line.middleware(lineConfig), async (req, res) => {
+app.post('/webhook', webhookLimit, line.middleware(lineConfig), async (req, res) => {
   res.status(200).json({ status: 'ok' });
   for (const event of req.body.events) {
     try {
@@ -108,23 +118,37 @@ app.post('/stripe/webhook', express.raw({ type: 'application/json' }), async (re
 });
 
 app.use(express.json());
+app.use(generalLimit);
 
-// ── PDF download ─────────────────────────────────────
-app.get('/invoice/download/:userId/:invoiceId', (req, res) => {
-  const { userId, invoiceId } = req.params;
-  const invoices = invoiceId === 'latest'
-    ? db.getInvoices(userId, 1)
-    : db.getInvoices(userId, 50).filter(inv => inv.id === parseInt(invoiceId));
+// ── PDF download (HMAC-signed URL only) ──────────────
+app.get('/invoice/download/:userId/:invoiceId/:sig', downloadLimit, (req, res) => {
+  const { userId, invoiceId, sig } = req.params;
 
-  if (!invoices.length || !invoices[0].pdf_path) {
-    return res.status(404).send('請求書が見つかりません');
+  // ✅ Verify HMAC signature - prevents URL guessing attacks
+  if (!verifyInvoiceSig(invoiceId, userId, sig)) {
+    return res.status(403).send('Forbidden: invalid signature');
   }
+
+  // ✅ Validate invoiceId is numeric (prevents path traversal)
+  const id = parseInt(invoiceId);
+  if (isNaN(id) || id <= 0) return res.status(400).send('Bad request');
+
+  const invoices = db.getInvoices(userId, 100).filter(inv => inv.id === id);
+  if (!invoices.length || !invoices[0].pdf_path) return res.status(404).send('請求書が見つかりません');
+
   const filepath = invoices[0].pdf_path;
-  if (!fs.existsSync(filepath)) return res.status(404).send('ファイルが存在しません（期限切れの可能性があります）');
+  // ✅ Ensure path is within OUTPUT_DIR (prevent directory traversal)
+  const allowedDir = path.resolve(__dirname, '../data/pdfs');
+  const resolved = path.resolve(filepath);
+  if (!resolved.startsWith(allowedDir)) return res.status(403).send('Forbidden');
+
+  if (!fs.existsSync(resolved)) return res.status(404).send('ファイルが存在しません（90日経過で自動削除されます）');
 
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `attachment; filename="${path.basename(filepath)}"`);
-  fs.createReadStream(filepath).pipe(res);
+  res.setHeader('Content-Disposition', `attachment; filename="${path.basename(resolved)}"`);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cache-Control', 'private, no-cache');
+  fs.createReadStream(resolved).pipe(res);
 });
 
 // ── Payment pages ─────────────────────────────────────
@@ -216,6 +240,29 @@ footer a{color:#fff;margin:0 12px}
 
 // ── Health check ──────────────────────────────────────
 app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
+
+// ── Error handler (no stack trace leaks) ─────────────
+app.use((err, req, res, next) => {
+  console.error('Unhandled:', err.message);
+  if (res.headersSent) return next(err);
+  res.status(500).send('Internal Server Error');
+});
+
+// ── Cron: cleanup old PDFs (90 days, GDPR compliance) ─
+const PDF_DIR = path.join(__dirname, '../data/pdfs');
+cron.schedule('0 3 * * *', () => {
+  if (!fs.existsSync(PDF_DIR)) return;
+  const cutoff = Date.now() - 90 * 24 * 60 * 60 * 1000;
+  let deleted = 0;
+  for (const file of fs.readdirSync(PDF_DIR)) {
+    const fp = path.join(PDF_DIR, file);
+    try {
+      const stat = fs.statSync(fp);
+      if (stat.mtimeMs < cutoff) { fs.unlinkSync(fp); deleted++; }
+    } catch (e) { /* ignore */ }
+  }
+  if (deleted > 0) console.log(`🧹 Cleaned up ${deleted} old PDFs`);
+});
 
 // ── Start ─────────────────────────────────────────────
 async function start() {

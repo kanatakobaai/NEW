@@ -1,17 +1,26 @@
 require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
+const cookieParser = require('cookie-parser');
+const { doubleCsrf } = require('csrf-csrf');
+const rateLimit = require('express-rate-limit');
+const nodemailer = require('nodemailer');
 const path = require('path');
 const fs = require('fs');
 const Database = require('better-sqlite3');
 const Stripe = require('stripe');
 const PDFDocument = require('pdfkit');
+const { escape, validateEnv, genToken } = require('./security');
+
+validateEnv();
 
 const app = express();
+app.set('trust proxy', 1); // Railway runs behind proxy
 const PORT = process.env.PORT || 3001;
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
+const isProd = process.env.NODE_ENV === 'production';
 
-// ── Database (shared schema with LINE bot) ───────────
+// ── Database ─────────────────────────────────────────
 const dbPath = process.env.DATABASE_PATH || './data/db.sqlite';
 const dir = path.dirname(dbPath);
 if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -40,24 +49,51 @@ db.exec(`
     amount INTEGER,
     description TEXT,
     tax_rate REAL DEFAULT 0.10,
+    pdf_token TEXT,
+    pdf_path TEXT,
     created_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE TABLE IF NOT EXISTS magic_tokens (
+    token TEXT PRIMARY KEY,
+    email TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used INTEGER DEFAULT 0
   );
 `);
 
 const FREE_LIMIT = 3;
 
 // ── Middleware ───────────────────────────────────────
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser(process.env.SESSION_SECRET));
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'change-me-in-production',
+  secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
-  cookie: { maxAge: 30 * 24 * 60 * 60 * 1000 },
+  cookie: {
+    maxAge: 30 * 24 * 60 * 60 * 1000,
+    httpOnly: true,
+    secure: isProd,
+    sameSite: 'lax',
+  },
 }));
 
-// Stripe webhook needs raw body
-app.post('/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+// ── CSRF protection ──────────────────────────────────
+const { generateCsrfToken, doubleCsrfProtection } = doubleCsrf({
+  getSecret: () => process.env.SESSION_SECRET,
+  cookieName: '__csrf',
+  cookieOptions: { httpOnly: true, secure: isProd, sameSite: 'lax' },
+  size: 64,
+  getSessionIdentifier: (req) => req.session.id || 'anonymous',
+  getCsrfTokenFromRequest: (req) => req.body?._csrf || req.headers['x-csrf-token'],
+});
+
+// ── Rate limiting ────────────────────────────────────
+const generalLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 100 });
+const authLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 5 });
+const webhookLimit = rateLimit({ windowMs: 60 * 1000, max: 60 });
+
+// ── Stripe webhook (raw body, before json parser) ────
+app.post('/stripe/webhook', webhookLimit, express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'];
   try {
     const event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
@@ -69,11 +105,44 @@ app.post('/stripe/webhook', express.raw({ type: 'application/json' }), async (re
           .run(cs.customer, email);
       }
     }
+    if (event.type === 'customer.subscription.deleted') {
+      const sub = event.data.object;
+      db.prepare(`UPDATE web_users SET subscription_status='free' WHERE stripe_customer_id=?`).run(sub.customer);
+    }
     res.json({ received: true });
-  } catch (e) { res.status(400).send(`Error: ${e.message}`); }
+  } catch (e) {
+    console.error('Stripe webhook error:', e.message);
+    res.status(400).send('Webhook Error');
+  }
 });
 
-// ── Auth (email-only, simple magic link or session) ──
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(generalLimit);
+
+// ── Auth: magic link ─────────────────────────────────
+const transporter = process.env.SMTP_HOST ? nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: parseInt(process.env.SMTP_PORT || '587'),
+  secure: process.env.SMTP_SECURE === 'true',
+  auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+}) : null;
+
+async function sendMagicLink(email, token) {
+  const url = `${process.env.BASE_URL}/auth/verify?token=${token}`;
+  if (transporter) {
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || 'noreply@freelancebot.app',
+      to: email,
+      subject: 'フリーランスBot ログインリンク',
+      text: `以下のリンクをクリックしてログインしてください（10分有効）：\n\n${url}\n\n心当たりがない場合は無視してください。`,
+      html: `<p>以下のリンクをクリックしてログインしてください（10分有効）：</p><p><a href="${url}">${url}</a></p><p>心当たりがない場合は無視してください。</p>`,
+    });
+  } else {
+    console.log(`📧 [DEV] Magic link for ${email}: ${url}`);
+  }
+}
+
 function requireUser(req, res, next) {
   if (!req.session.email) return res.redirect('/login');
   let user = db.prepare('SELECT * FROM web_users WHERE email = ?').get(req.session.email);
@@ -85,10 +154,10 @@ function requireUser(req, res, next) {
   next();
 }
 
-// ── Routes ───────────────────────────────────────────
+// ── HTML layout (XSS-safe) ───────────────────────────
 const layout = (title, body, opts = {}) => `<!DOCTYPE html><html lang="ja"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${title}</title>
+<title>${escape(title)}</title>
 <meta name="description" content="LINEまたはWebで請求書を30秒で作成。インボイス制度対応・月額980円。">
 <style>
 *{box-sizing:border-box}
@@ -113,13 +182,14 @@ footer a{color:#888;margin:0 8px}
 .alert{padding:12px;border-radius:8px;margin-bottom:16px}
 .alert-info{background:#e3f2fd;color:#1565c0;border-left:4px solid #1976d2}
 .alert-warning{background:#fff3cd;color:#856404;border-left:4px solid #ffc107}
+.alert-success{background:#d4edda;color:#155724;border-left:4px solid #28a745}
 .row{display:flex;gap:16px}.row > *{flex:1}
 @media (max-width:600px){.row{flex-direction:column}}
 </style></head><body>
 <nav class="nav">
   <a href="/" class="logo">📄 フリーランスBot</a>
   <div>
-    ${opts.user ? `<span class="muted">${opts.user.email}</span> <a href="/logout">ログアウト</a>` : '<a href="/login">ログイン</a>'}
+    ${opts.user ? `<span class="muted">${escape(opts.user.email)}</span> <a href="/logout">ログアウト</a>` : '<a href="/login">ログイン</a>'}
   </div>
 </nav>
 <div class="container">${body}</div>
@@ -131,6 +201,9 @@ footer a{color:#888;margin:0 8px}
 </footer>
 </body></html>`;
 
+const csrfInput = (req) => `<input type="hidden" name="_csrf" value="${escape(generateCsrfToken(req))}">`;
+
+// ── Routes ───────────────────────────────────────────
 app.get('/', (req, res) => {
   const user = req.session.email ? db.prepare('SELECT * FROM web_users WHERE email = ?').get(req.session.email) : null;
   res.send(layout('フリーランスBot - 請求書を30秒で作成', `
@@ -155,18 +228,48 @@ app.get('/login', (req, res) => {
 <div class="card">
   <h1>ログイン / 新規登録</h1>
   <form action="/login" method="post">
-    <div class="field"><label>メールアドレス</label><input type="email" name="email" required></div>
-    <button class="btn btn-primary" type="submit">続ける</button>
+    ${csrfInput(req)}
+    <div class="field"><label>メールアドレス</label><input type="email" name="email" required autocomplete="email"></div>
+    <button class="btn btn-primary" type="submit">ログインリンクを送信</button>
   </form>
-  <p class="muted" style="margin-top:24px">※ 簡易ログインです。本番版ではマジックリンク認証になります。</p>
+  <p class="muted" style="margin-top:24px">入力したメールアドレスにワンタイムログインリンクを送信します。</p>
 </div>
 `));
 });
 
-app.post('/login', (req, res) => {
-  const email = (req.body.email || '').trim().toLowerCase();
+app.post('/login', authLimit, doubleCsrfProtection, async (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.redirect('/login');
-  req.session.email = email;
+
+  // Generate magic link
+  const token = genToken();
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+  db.prepare('INSERT INTO magic_tokens (token, email, expires_at) VALUES (?, ?, ?)').run(token, email, expiresAt);
+
+  try { await sendMagicLink(email, token); } catch (e) { console.error('Email send failed:', e.message); }
+
+  res.send(layout('リンク送信完了', `
+<div class="card">
+  <div class="alert alert-success">📧 ${escape(email)} にログインリンクを送信しました。</div>
+  <p>メールに記載されたリンクをクリックしてログインしてください（10分以内）。</p>
+  <p class="muted">届かない場合は迷惑メールフォルダをご確認ください。</p>
+</div>
+`));
+});
+
+app.get('/auth/verify', authLimit, (req, res) => {
+  const token = String(req.query.token || '');
+  const row = db.prepare('SELECT * FROM magic_tokens WHERE token = ? AND used = 0').get(token);
+  if (!row) return res.status(400).send(layout('リンク無効', `<div class="card"><h1>リンクが無効です</h1><p>有効期限切れか、すでに使用されています。<a href="/login">ログインページに戻る</a></p></div>`));
+  if (new Date(row.expires_at) < new Date()) return res.status(400).send(layout('期限切れ', `<div class="card"><h1>リンクの有効期限が切れています</h1><a href="/login">再度ログイン</a></div>`));
+
+  db.prepare('UPDATE magic_tokens SET used = 1 WHERE token = ?').run(token);
+  req.session.email = row.email;
+
+  // Auto-create user if not exists
+  if (!db.prepare('SELECT 1 FROM web_users WHERE email = ?').get(row.email)) {
+    db.prepare('INSERT INTO web_users (email) VALUES (?)').run(row.email);
+  }
   res.redirect('/create');
 });
 
@@ -180,10 +283,11 @@ app.get('/create', requireUser, (req, res) => {
   ${remaining === 0 ? '<div class="alert alert-warning">今月の無料枠を使い切りました。<a href="/upgrade">プレミアムにアップグレード</a></div>' :
     remaining !== Infinity ? `<div class="alert alert-info">今月あと${remaining}枚無料で作れます</div>` : ''}
   <form action="/create" method="post">
-    <div class="field"><label>請求先 *</label><input name="clientName" required placeholder="例：田中商事"></div>
-    <div class="field"><label>件名 *</label><input name="description" required placeholder="例：Webサイト制作"></div>
+    ${csrfInput(req)}
+    <div class="field"><label>請求先 *</label><input name="clientName" required placeholder="例：田中商事" maxlength="100"></div>
+    <div class="field"><label>件名 *</label><input name="description" required placeholder="例：Webサイト制作" maxlength="200"></div>
     <div class="row">
-      <div class="field"><label>金額（税抜）*</label><input name="amount" type="number" required placeholder="150000"></div>
+      <div class="field"><label>金額（税抜）*</label><input name="amount" type="number" required placeholder="150000" min="1" max="999999999"></div>
       <div class="field"><label>税率</label>
         <select name="taxRate"><option value="0.10">10%（標準）</option><option value="0.08">8%（軽減）</option><option value="0">非課税</option></select>
       </div>
@@ -199,23 +303,26 @@ app.get('/create', requireUser, (req, res) => {
 `, { user: req.user }));
 });
 
-app.post('/create', requireUser, async (req, res) => {
+app.post('/create', requireUser, doubleCsrfProtection, async (req, res) => {
   const remaining = getRemaining(req.user);
   if (remaining === 0) return res.redirect('/upgrade');
 
-  const { clientName, description } = req.body;
-  const amount = parseInt(req.body.amount);
-  const taxRate = parseFloat(req.body.taxRate);
+  // Input validation
+  const clientName = String(req.body.clientName || '').slice(0, 100);
+  const description = String(req.body.description || '').slice(0, 200);
+  const amount = Math.min(Math.max(parseInt(req.body.amount) || 0, 1), 999999999);
+  const taxRate = [0, 0.08, 0.10].includes(parseFloat(req.body.taxRate)) ? parseFloat(req.body.taxRate) : 0.10;
+
+  if (!clientName || !description || !amount) return res.redirect('/create');
 
   const count = db.prepare('SELECT COUNT(*) as c FROM web_invoices WHERE user_email = ?').get(req.user.email).c;
   const invoiceNumber = `INV-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`;
+  const pdfToken = genToken(16);
 
-  db.prepare(`INSERT INTO web_invoices (user_email, invoice_number, client_name, amount, description, tax_rate)
-    VALUES (?, ?, ?, ?, ?, ?)`).run(req.user.email, invoiceNumber, clientName, amount, description, taxRate);
+  db.prepare(`INSERT INTO web_invoices (user_email, invoice_number, client_name, amount, description, tax_rate, pdf_token)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`).run(req.user.email, invoiceNumber, clientName, amount, description, taxRate, pdfToken);
 
-  if (req.user.subscription_status !== 'active') {
-    incrementUsage(req.user.email);
-  }
+  if (req.user.subscription_status !== 'active') incrementUsage(req.user.email);
 
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="invoice_${invoiceNumber}.pdf"`);
@@ -227,21 +334,27 @@ app.get('/settings', requireUser, (req, res) => {
 <div class="card">
   <h1>設定</h1>
   <form action="/settings" method="post">
-    <div class="field"><label>会社名・屋号</label><input name="my_company_name" value="${req.user.my_company_name || ''}"></div>
-    <div class="field"><label>担当者名</label><input name="my_name" value="${req.user.my_name || ''}"></div>
-    <div class="field"><label>住所</label><input name="my_address" value="${req.user.my_address || ''}"></div>
-    <div class="field"><label>登録番号（インボイス）</label><input name="invoice_registration_number" value="${req.user.invoice_registration_number || ''}" placeholder="T1234567890123" pattern="T?\\d{13}"></div>
-    <div class="field"><label>振込先（銀行・支店・口座番号）</label><input name="my_bank_info" value="${req.user.my_bank_info || ''}"></div>
+    ${csrfInput(req)}
+    <div class="field"><label>会社名・屋号</label><input name="my_company_name" value="${escape(req.user.my_company_name)}" maxlength="100"></div>
+    <div class="field"><label>担当者名</label><input name="my_name" value="${escape(req.user.my_name)}" maxlength="50"></div>
+    <div class="field"><label>住所</label><input name="my_address" value="${escape(req.user.my_address)}" maxlength="200"></div>
+    <div class="field"><label>登録番号（インボイス）</label><input name="invoice_registration_number" value="${escape(req.user.invoice_registration_number)}" placeholder="T1234567890123" pattern="T?\\d{13}"></div>
+    <div class="field"><label>振込先（銀行・支店・口座番号）</label><input name="my_bank_info" value="${escape(req.user.my_bank_info)}" maxlength="200"></div>
     <button class="btn btn-primary" type="submit">保存</button>
   </form>
 </div>
 `, { user: req.user }));
 });
 
-app.post('/settings', requireUser, (req, res) => {
+app.post('/settings', requireUser, doubleCsrfProtection, (req, res) => {
   const fields = ['my_company_name', 'my_name', 'my_address', 'invoice_registration_number', 'my_bank_info'];
   const sets = fields.map(f => `${f} = ?`).join(', ');
-  const vals = fields.map(f => req.body[f] || null);
+  const vals = fields.map(f => String(req.body[f] || '').slice(0, 200) || null);
+  // Sanitize invoice registration number
+  if (vals[3]) {
+    const m = vals[3].match(/T?(\d{13})/);
+    vals[3] = m ? `T${m[1]}` : null;
+  }
   db.prepare(`UPDATE web_users SET ${sets} WHERE email = ?`).run(...vals, req.user.email);
   res.redirect('/create');
 });
@@ -265,6 +378,20 @@ app.get('/legal/tokushoho', tokushoho);
 app.get('/legal/privacy', privacy);
 app.get('/legal/terms', terms);
 
+// ── Cleanup expired magic tokens (every hour) ────────
+setInterval(() => {
+  db.prepare('DELETE FROM magic_tokens WHERE expires_at < datetime("now")').run();
+}, 60 * 60 * 1000);
+
+// ── Error handler ────────────────────────────────────
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err.message);
+  if (err.code === 'EBADCSRFTOKEN' || err.message?.includes('csrf')) {
+    return res.status(403).send(layout('セキュリティエラー', '<div class="card"><h1>不正なリクエスト</h1><p><a href="/">トップへ戻る</a></p></div>'));
+  }
+  res.status(500).send(layout('エラー', '<div class="card"><h1>エラーが発生しました</h1><p><a href="/">トップへ戻る</a></p></div>'));
+});
+
 // ── Helpers ──────────────────────────────────────────
 function getRemaining(user) {
   if (user.subscription_status === 'active') return Infinity;
@@ -281,14 +408,12 @@ function incrementUsage(email) {
 }
 
 function generatePDF(invoice, user, res) {
-  // Reuse line-bot's PDF generator logic - simplified here
   const fontPath = path.join(__dirname, '../../line-bot/assets/fonts/NotoSansJP-Regular.otf');
   const useJP = fs.existsSync(fontPath);
   const doc = new PDFDocument({ size: 'A4', margin: 60 });
   doc.pipe(res);
   if (useJP) doc.registerFont('JP', fontPath);
   const f = (b) => useJP ? doc.font('JP') : doc.font(b ? 'Helvetica-Bold' : 'Helvetica');
-
   const taxAmount = Math.floor(invoice.amount * invoice.taxRate);
   const total = invoice.amount + taxAmount;
   const fmt = (a) => `¥${a.toLocaleString('ja-JP')}`;
@@ -319,4 +444,4 @@ function generatePDF(invoice, user, res) {
   doc.end();
 }
 
-app.listen(PORT, () => console.log(`Web tool running on port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Web tool running on port ${PORT}`));

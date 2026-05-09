@@ -5,6 +5,7 @@ const { createCheckoutSession } = require('../services/stripe');
 const {
   invoiceConfirmFlex, invoiceCreatedFlex, premiumUpgradeFlex, menuFlex, quickReply,
 } = require('../services/flexMessages');
+const { signInvoice } = require('../security');
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
 
@@ -178,7 +179,9 @@ async function handleConfirm(client, event, userId, user, text, parsed) {
 
     const remaining = db.getRemainingFreeUses(userId);
     const total = savedInvoice.amount + Math.floor(savedInvoice.amount * (savedInvoice.taxRate || 0.10));
-    const downloadUrl = `${BASE_URL}/invoice/download/${userId}/${savedInvoice.id}`;
+    // ✅ Signed URL prevents URL guessing attacks
+    const sig = signInvoice(savedInvoice.id, userId);
+    const downloadUrl = `${BASE_URL}/invoice/download/${userId}/${savedInvoice.id}/${sig}`;
 
     // ✅ Use reply (free) instead of push (counts toward LINE limit)
     return reply(client, event, invoiceCreatedFlex(savedInvoice.invoiceNumber, savedInvoice.clientName, total, downloadUrl, remaining));

@@ -1,0 +1,37 @@
+# Flutter/Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub/
+build/
+*.lock
+.metadata
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.iws
+
+# Platform-specific (will be created by `flutter create`)
+android/.gradle/
+android/local.properties
+android/app/release/
+android/key.properties
+android/*.jks
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+ios/Runner.xcworkspace/xcuserdata/
+
+# macOS
+.DS_Store
+
+# Generated
+*.g.freezed.dart
+
+# Fonts (downloaded by user)
+assets/fonts/*.otf
+assets/fonts/*.ttf

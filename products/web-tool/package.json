@@ -9,9 +9,13 @@
   },
   "dependencies": {
     "better-sqlite3": "^12.9.0",
+    "cookie-parser": "^1.4.7",
+    "csrf-csrf": "^4.0.3",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.5.1",
     "express-session": "^1.18.1",
+    "nodemailer": "^8.0.7",
     "pdfkit": "^0.18.0",
     "stripe": "^22.1.1"
   }
