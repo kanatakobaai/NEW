@@ -48,6 +48,16 @@ db.exec(`
   );
 `);
 
+// 🔧 FIX: Idempotent migrations for existing deployments
+const migrations = [
+  "ALTER TABLE users ADD COLUMN invoice_registration_number TEXT",
+  "ALTER TABLE users ADD COLUMN accepted_terms_at TEXT",
+];
+for (const sql of migrations) {
+  try { db.exec(sql); }
+  catch (e) { /* column already exists - ignore */ }
+}
+
 const FREE_LIMIT = 3;
 
 function getUser(lineUserId) {
@@ -115,13 +125,23 @@ function saveInvoice(lineUserId, invoiceData) {
     INSERT INTO invoices (line_user_id, invoice_number, client_name, amount, description, tax_rate, due_date, pdf_path)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(lineUserId, invoiceNumber, invoiceData.clientName, invoiceData.amount,
-    invoiceData.description, invoiceData.taxRate || 0.10, invoiceData.dueDate, invoiceData.pdfPath);
+    invoiceData.description, invoiceData.taxRate || 0.10, invoiceData.dueDate, invoiceData.pdfPath || null);
   return { ...invoiceData, invoiceNumber, id: result.lastInsertRowid };
+}
+
+// 🔧 FIX: Update invoice with PDF path after generation
+function updateInvoicePdfPath(invoiceId, pdfPath) {
+  db.prepare('UPDATE invoices SET pdf_path = ? WHERE id = ?').run(pdfPath, invoiceId);
 }
 
 function getInvoices(lineUserId, limit = 5) {
   return db.prepare('SELECT * FROM invoices WHERE line_user_id = ? ORDER BY created_at DESC LIMIT ?')
     .all(lineUserId, limit);
+}
+
+// 🔧 FIX: Get user by Stripe subscription ID (for cancellation webhook)
+function getUserBySubscriptionId(subscriptionId) {
+  return db.prepare('SELECT * FROM users WHERE subscription_id = ?').get(subscriptionId);
 }
 
 function getSession(lineUserId) {
@@ -144,6 +164,7 @@ function clearSession(lineUserId) {
 
 module.exports = {
   getUser, upsertUser, canUseService, incrementUsage, getRemainingFreeUses,
-  updateSubscription, updateUserProfile, saveInvoice, getInvoices,
+  updateSubscription, updateUserProfile, saveInvoice, updateInvoicePdfPath,
+  getInvoices, getUserBySubscriptionId,
   getSession, setSession, clearSession,
 };

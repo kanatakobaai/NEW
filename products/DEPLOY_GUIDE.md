@@ -157,8 +157,30 @@ BUSINESS_EMAIL=...
 **Q: PDFが文字化けする**
 A: 起動ログで「Japanese font ready」が出ているか確認。出てなければNotoSansJPのDLが失敗している。手動で `assets/fonts/NotoSansJP-Regular.otf` を配置すれば解決。
 
+**Q: PDFダウンロードリンクが404**
+A: Railwayの永続ボリュームが `/data` にマウントされているか確認。`DATABASE_PATH=/data/db.sqlite` 設定があるか確認。
+
 **Q: LINEから返信が来ない**
 A: Railwayのログで `Event handling error` を確認。Webhook URLが正しいか、`/webhook` を含んでいるか確認。
 
 **Q: Stripeで決済できない**
 A: 本番モードのキーを使っているか確認。`sk_test_` ではなく `sk_live_` のキーが必要。
+
+**Q: Webツールでログインメールが届かない**
+A: SMTP設定を確認。`SMTP_HOST` `SMTP_USER` `SMTP_PASS` を環境変数に設定。
+   開発時は届かなくてもサーバーログにマジックリンクURLが出力される。
+
+**Q: 「Missing required env vars」エラーで起動失敗**
+A: 必須環境変数が不足している。エラーメッセージに記載された変数を Railway に追加。
+
+---
+
+## 永続ボリューム（Railway）の重要設定
+
+LINE Bot/Web ツール両方で **必ず設定** してください：
+
+1. Railway ダッシュボード → サービス → Volumes → New Volume
+2. Mount Path: `/data`
+3. 環境変数 `DATABASE_PATH=/data/db.sqlite` を設定
+
+これがないと、デプロイのたびにDBとPDFが消えます。

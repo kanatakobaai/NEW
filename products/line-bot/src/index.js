@@ -54,8 +54,9 @@ async function handleFollow(client, event) {
   try { profile = await client.getProfile(userId); } catch { profile = { displayName: 'ユーザー' }; }
   db.upsertUser(userId, profile.displayName);
 
-  await client.pushMessage({
-    to: userId,
+  // 🔧 FIX: replyMessage instead of pushMessage saves quota (follow events have replyToken)
+  await client.replyMessage({
+    replyToken: event.replyToken,
     messages: [
       {
         type: 'text',
@@ -100,7 +101,8 @@ app.post('/stripe/webhook', express.raw({ type: 'application/json' }), async (re
 
     if (event.type === 'customer.subscription.deleted') {
       const sub = event.data.object;
-      const user = db.db?.prepare?.('SELECT * FROM users WHERE subscription_id = ?').get(sub.id);
+      // 🔧 CRITICAL FIX: was calling non-existent db.db.prepare, now uses proper helper
+      const user = db.getUserBySubscriptionId(sub.id);
       if (user) {
         db.updateSubscription(user.line_user_id, user.stripe_customer_id, sub.id, 'free');
         await client.pushMessage({

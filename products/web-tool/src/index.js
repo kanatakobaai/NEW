@@ -11,6 +11,7 @@ const Database = require('better-sqlite3');
 const Stripe = require('stripe');
 const PDFDocument = require('pdfkit');
 const { escape, validateEnv, genToken } = require('./security');
+const { ensureJapaneseFont, getFontPath } = require('./fontManager');
 
 validateEnv();
 
@@ -408,8 +409,9 @@ function incrementUsage(email) {
 }
 
 function generatePDF(invoice, user, res) {
-  const fontPath = path.join(__dirname, '../../line-bot/assets/fonts/NotoSansJP-Regular.otf');
-  const useJP = fs.existsSync(fontPath);
+  // 🔧 FIX: web-tool now has its own font (no cross-project dependency)
+  const fontPath = getFontPath();
+  const useJP = !!fontPath;
   const doc = new PDFDocument({ size: 'A4', margin: 60 });
   doc.pipe(res);
   if (useJP) doc.registerFont('JP', fontPath);
@@ -444,4 +446,14 @@ function generatePDF(invoice, user, res) {
   doc.end();
 }
 
-app.listen(PORT, () => console.log(`🚀 Web tool running on port ${PORT}`));
+async function start() {
+  try {
+    await ensureJapaneseFont();
+    console.log('✅ Japanese font ready');
+  } catch (e) {
+    console.warn('⚠️ Japanese font download failed. PDF will use fallback.', e.message);
+  }
+  app.listen(PORT, () => console.log(`🚀 Web tool running on port ${PORT}`));
+}
+
+start();

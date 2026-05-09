@@ -173,7 +173,9 @@ async function handleConfirm(client, event, userId, user, text, parsed) {
   // Generate PDF
   try {
     const savedInvoice = db.saveInvoice(userId, parsed);
-    const { filepath, filename } = await generateInvoicePDF(savedInvoice, user);
+    const { filepath } = await generateInvoicePDF(savedInvoice, user);
+    // 🔧 CRITICAL FIX: Persist PDF path so download endpoint can find it
+    db.updateInvoicePdfPath(savedInvoice.id, filepath);
     db.incrementUsage(userId);
     db.clearSession(userId);
 
