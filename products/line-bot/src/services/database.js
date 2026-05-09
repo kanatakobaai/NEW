@@ -21,7 +21,9 @@ db.exec(`
     my_company_name TEXT,
     my_name TEXT,
     my_address TEXT,
-    my_bank_info TEXT
+    my_bank_info TEXT,
+    invoice_registration_number TEXT,
+    accepted_terms_at TEXT
   );
 
   CREATE TABLE IF NOT EXISTS sessions (

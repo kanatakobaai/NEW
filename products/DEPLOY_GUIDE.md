@@ -1,8 +1,6 @@
-# デプロイガイド（kanataの作業：約30分）
+# デプロイガイド（kanataの作業：約30〜45分）
 
-> Vercelではなく **Railway** を使います。
-> 理由：PDFファイルの保存に永続的なファイルシステムが必要なため。
-> Railwayは月$5から使えます（初月は無料クレジットあり）。
+> Vercelではなく **Railway** を推奨します（永続ファイルシステム必要）。
 
 ---
 
@@ -12,7 +10,7 @@
 |---------|------|------|
 | [LINE Developers](https://developers.line.biz) | LINEボット | 無料 |
 | [Railway](https://railway.app) | サーバーホスティング | $5/月〜 |
-| [Stripe](https://stripe.com/jp) | 決済処理 | 無料（手数料3.6%） |
+| [Stripe](https://stripe.com/jp) | 決済処理 | 無料（手数料3.6%+¥40） |
 
 ---
 
@@ -21,100 +19,146 @@
 1. https://developers.line.biz → LINEでログイン
 2. 「新規プロバイダー作成」→ 名前：FreelanceBot
 3. 「Messaging APIチャネルを作成」
-   - チャネル名：**フリーランスBot**
-   - カテゴリ：ビジネス
-4. **チャネルシークレット** をコピー → `LINE_CHANNEL_SECRET`
+4. **チャネルシークレット** をコピー → 環境変数 `LINE_CHANNEL_SECRET`
 5. 「Messaging API設定」→ チャネルアクセストークン「発行」→ コピー → `LINE_CHANNEL_ACCESS_TOKEN`
-6. 「応答メッセージ」と「あいさつメッセージ」をOFF（Botで制御するため）
+6. 「応答メッセージ」と「あいさつメッセージ」を**OFF**
 
 ---
 
-## Step 2: Stripe設定（10分）
+## Step 2: Stripe設定（15分）
 
+### 2-1. アカウント設定
 1. https://stripe.com/jp → アカウント作成
-2. ダッシュボード → 「製品カタログ」→ 「製品を追加」
+2. 本番モードに切り替え（テスト→本番）
+3. ビジネス情報を入力（特商法表記の事業者名・住所と整合）
+
+### 2-2. 商品作成
+1. ダッシュボード → 「製品カタログ」→ 「製品を追加」
    - 名前：**フリーランスBot プレミアム**
    - 料金：**¥980** / 月（定期支払い）
-3. 作成後の **Price ID**（`price_xxx...`）をコピー → `STRIPE_PRICE_ID`
-4. 「開発者」→「APIキー」→ **シークレットキー**（`sk_live_xxx...`）をコピー → `STRIPE_SECRET_KEY`
+2. **Price ID**（`price_xxx...`）をコピー → `STRIPE_PRICE_ID`
+3. 「APIキー」→ シークレットキー → `STRIPE_SECRET_KEY`
 
 ---
 
-## Step 3: Railwayデプロイ（10分）
+## Step 3: 法的情報の設定（5分）
+
+特定商取引法に基づく表記には実在する事業者情報が必要です。
+
+```env
+BUSINESS_NAME=（屋号または法人名）
+BUSINESS_OWNER=（代表者の戸籍上の氏名）
+BUSINESS_ADDRESS=（事業所住所）
+BUSINESS_PHONE=（連絡先電話）
+BUSINESS_EMAIL=（連絡先メール）
+```
+
+⚠️ **個人事業主の場合の注意**：
+- 戸籍上の氏名を記載する必要あり（屋号のみ不可）
+- 住所・電話は「請求があれば遅滞なく開示」運用も可能
+- バーチャルオフィスの利用も可
+
+---
+
+## Step 4: Railwayデプロイ（10分）
 
 ```bash
-# 1. Railway CLIをインストール
 npm install -g @railway/cli
-
-# 2. ログイン
 railway login
-
-# 3. line-botディレクトリでプロジェクト作成
 cd products/line-bot
 railway init
-
-# 4. デプロイ
 railway up
 ```
 
-または Railway ダッシュボード (railway.app) から GitHub リポジトリを直接連携。
+### 永続ボリューム設定（Railway ダッシュボード）
+- Volumes → New Volume
+- Mount Path: `/data`
 
-### 環境変数の設定（Railway ダッシュボード → Variables）
+### 環境変数設定（Railway Variables）
 
 ```
-LINE_CHANNEL_SECRET=（Step1でコピーした値）
-LINE_CHANNEL_ACCESS_TOKEN=（Step1でコピーした値）
-STRIPE_SECRET_KEY=（Step2でコピーした値）
-STRIPE_PRICE_ID=（Step2でコピーした値）
-STRIPE_WEBHOOK_SECRET=（Step4で設定後に追加）
-BASE_URL=https://（Railway が発行するURL）.railway.app
+LINE_CHANNEL_SECRET=...
+LINE_CHANNEL_ACCESS_TOKEN=...
+STRIPE_SECRET_KEY=sk_live_...
+STRIPE_PRICE_ID=price_...
+STRIPE_WEBHOOK_SECRET=whsec_...（Step5で追加）
+BASE_URL=https://xxx.railway.app
 DATABASE_PATH=/data/db.sqlite
 PORT=3000
+BUSINESS_NAME=...
+BUSINESS_OWNER=...
+BUSINESS_ADDRESS=...
+BUSINESS_PHONE=...
+BUSINESS_EMAIL=...
 ```
 
 ---
 
-## Step 4: Webhook設定（5分）
+## Step 5: Webhook設定（5分）
 
 ### LINE Webhook
 1. LINE Developersコンソール → Messaging API設定
 2. Webhook URL：`https://xxx.railway.app/webhook`
 3. 「Webhookの利用」→ **ON**
-4. 「検証」ボタンで接続確認
+4. 「検証」で接続確認
 
 ### Stripe Webhook
 1. Stripeダッシュボード → 「開発者」→「Webhook」→「エンドポイントを追加」
 2. URL：`https://xxx.railway.app/stripe/webhook`
-3. イベント：`checkout.session.completed`、`customer.subscription.deleted`
-4. 「署名シークレット」をコピー → Railway の `STRIPE_WEBHOOK_SECRET` に追加
+3. イベント：
+   - `checkout.session.completed`
+   - `customer.subscription.deleted`
+4. 「署名シークレット」をコピー → Railway の `STRIPE_WEBHOOK_SECRET` に設定
 
 ---
 
-## Step 5: テスト（5分）
+## Step 6: 動作確認（5分）
 
-1. LINE Developersコンソール → QRコードを読み取ってBotを友達追加
-2. 「田中商事に10万円の請求書、件名はWebサイト制作」と送信
-3. カード型の確認メッセージが表示されたら「✅ 作成」ボタンを押す
-4. PDFダウンロードリンクが届けば完成🎉
-
----
-
-## 完了後の運用
-
-| タスク | 自動化 |
-|--------|--------|
-| ユーザー対応 | ✅ Bot自動応答 |
-| PDF生成・配信 | ✅ サーバー自動処理 |
-| 月額請求 | ✅ Stripe自動決済 |
-| 解約処理 | ✅ Webhook自動処理 |
-| **kanataの日次作業** | **0分** |
+1. ブラウザで `https://xxx.railway.app/` を開く → ランディング表示確認
+2. `/legal/tokushoho`、`/legal/privacy`、`/legal/terms` を開く → 法的ページ確認
+3. LINEでBotを友達追加 → ウェルカムメッセージ確認
+4. 「田中商事に10万円の請求書、件名はWebサイト制作」と送信
+5. カード型確認画面で「✅ 作成」 → PDFダウンロードリンク取得
+6. Stripeで「プレミアム」課金フロー確認（テストカード `4242 4242 4242 4242`）
 
 ---
 
-## コスト vs 収益シミュレーション
+## 完了後の運用コスト
 
 | 項目 | 月額 |
 |------|------|
-| Railway | $5（約¥750） |
-| Stripe手数料（売上の3.6%） | 売上による |
-| **損益分岐点** | **有料ユーザー1人（¥980）で黒字** |
+| Railway | ¥750 |
+| LINE（200通以下） | ¥0 |
+| Stripe（売上3.6% + ¥40/件） | 売上による |
+
+### 損益分岐点
+
+| LINE通信量 | LINEプラン | 損益分岐点 |
+|-----------|----------|-----------|
+| 200通以下 | 無料 | **有料1人で黒字** |
+| 200〜5,000通 | ライト¥5,000 | **有料7人で黒字** |
+| 5,000〜30,000通 | スタンダード¥15,000 | **有料18人で黒字** |
+
+---
+
+## 法的監査チェックリスト（リリース前）
+
+- [x] 特定商取引法に基づく表記（事業者名・氏名・住所・連絡先・価格・解約方法）
+- [x] プライバシーポリシー（取得情報・利用目的・第三者提供）
+- [x] 利用規約（禁止事項・免責・準拠法）
+- [x] インボイス制度対応（登録番号・税率別表示）
+- [x] 軽減税率対応（8%）
+- [x] 個人情報保護法対応（同意取得・削除手続き）
+
+---
+
+## トラブルシューティング
+
+**Q: PDFが文字化けする**
+A: 起動ログで「Japanese font ready」が出ているか確認。出てなければNotoSansJPのDLが失敗している。手動で `assets/fonts/NotoSansJP-Regular.otf` を配置すれば解決。
+
+**Q: LINEから返信が来ない**
+A: Railwayのログで `Event handling error` を確認。Webhook URLが正しいか、`/webhook` を含んでいるか確認。
+
+**Q: Stripeで決済できない**
+A: 本番モードのキーを使っているか確認。`sk_test_` ではなく `sk_live_` のキーが必要。

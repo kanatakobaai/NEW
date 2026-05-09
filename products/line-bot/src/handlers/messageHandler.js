@@ -50,7 +50,7 @@ async function handleMessage(client, event) {
     db.setSession(userId, 'setup');
     return reply(client, event, {
       type: 'text',
-      text: '⚙️ 設定モード\n\n以下の形式で送ってください（不要な項目はスキップ可）:\n\n会社名：〇〇株式会社\n担当者名：山田太郎\n住所：東京都渋谷区...\n銀行口座：〇〇銀行 普通 1234567',
+      text: '⚙️ 設定モード\n\n以下の形式で送ってください（不要な項目はスキップ可）:\n\n会社名：〇〇株式会社\n担当者名：山田太郎\n住所：東京都渋谷区...\n登録番号：T1234567890123\n銀行口座：〇〇銀行 普通 1234567\n\n💡 登録番号を設定すると適格請求書として発行されます。',
       quickReply: quickReply([
         { label: '現在の設定を見る', text: '設定確認' },
         { label: 'キャンセル', text: 'キャンセル' },
@@ -65,6 +65,7 @@ async function handleMessage(client, event) {
       `会社名: ${user.my_company_name || '（未設定）'}`,
       `担当者名: ${user.my_name || '（未設定）'}`,
       `住所: ${user.my_address || '（未設定）'}`,
+      `登録番号: ${user.invoice_registration_number || '（未設定）'}`,
       `口座: ${user.my_bank_info || '（未設定）'}`,
     ].join('\n');
     return reply(client, event, { type: 'text', text: lines });
@@ -179,11 +180,12 @@ async function handleConfirm(client, event, userId, user, text, parsed) {
     const total = savedInvoice.amount + Math.floor(savedInvoice.amount * (savedInvoice.taxRate || 0.10));
     const downloadUrl = `${BASE_URL}/invoice/download/${userId}/${savedInvoice.id}`;
 
-    return push(client, userId, invoiceCreatedFlex(savedInvoice.invoiceNumber, savedInvoice.clientName, total, downloadUrl, remaining));
+    // ✅ Use reply (free) instead of push (counts toward LINE limit)
+    return reply(client, event, invoiceCreatedFlex(savedInvoice.invoiceNumber, savedInvoice.clientName, total, downloadUrl, remaining));
   } catch (err) {
     console.error('Invoice generation error:', err);
     db.clearSession(userId);
-    return push(client, userId, {
+    return reply(client, event, {
       type: 'text',
       text: '❌ 請求書の生成中にエラーが発生しました。\nもう一度お試しください。',
       quickReply: quickReply([{ label: '再試行', text: '請求書作成' }, { label: 'サポート', text: 'ヘルプ' }]),
@@ -207,12 +209,17 @@ async function handleSetup(client, event, userId, text) {
     if (/担当者名|名前|氏名|お名前/.test(key)) updates.my_name = val;
     if (/住所|所在地/.test(key)) updates.my_address = val;
     if (/銀行|口座|振込/.test(key)) updates.my_bank_info = val;
+    if (/登録番号|インボイス番号|適格請求書/.test(key)) {
+      // インボイス登録番号は T+13桁
+      const m = val.match(/T?(\d{13})/);
+      if (m) updates.invoice_registration_number = `T${m[1]}`;
+    }
   }
 
   if (!Object.keys(updates).length) {
     return reply(client, event, {
       type: 'text',
-      text: '⚠️ 形式が正しくありません。\n\n例：\n会社名：〇〇株式会社\n担当者名：山田太郎\n銀行口座：〇〇銀行 普通 1234567',
+      text: '⚠️ 形式が正しくありません。\n\n例：\n会社名：〇〇株式会社\n担当者名：山田太郎\n登録番号：T1234567890123\n銀行口座：〇〇銀行 普通 1234567',
     });
   }
 

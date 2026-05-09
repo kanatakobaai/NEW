@@ -9,6 +9,7 @@ const { createCheckoutSession } = require('./services/stripe');
 const db = require('./services/database');
 const { ensureJapaneseFont } = require('./services/fontManager');
 const { menuFlex } = require('./services/flexMessages');
+const { tokushoho, privacy, terms } = require('./handlers/legalPages');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -153,6 +154,63 @@ h1{color:#e67e22;font-size:1.8rem}p{color:#666}
 <div class="card"><h1>キャンセルしました</h1>
 <p>いつでもLINEから「プレミアム」と送るとご登録いただけます。</p>
 <a href="https://line.me/R/" class="btn">LINEに戻る</a></div>
+</body></html>`);
+});
+
+// ── Legal pages（法令必須） ─────────────────────────
+app.get('/legal/tokushoho', tokushoho);
+app.get('/legal/privacy', privacy);
+app.get('/legal/terms', terms);
+
+// ── Landing page ─────────────────────────────────────
+app.get('/', (req, res) => {
+  res.send(`<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>フリーランスBot - LINEで請求書を30秒</title>
+<meta name="description" content="LINEに一言送るだけで請求書PDFが自動生成。インボイス制度対応。月額980円で無制限。">
+<style>
+body{font-family:-apple-system,sans-serif;margin:0;background:#f8f9fa;color:#1a1a1a;line-height:1.6}
+.hero{background:linear-gradient(135deg,#2c3e50 0%,#34495e 100%);color:#fff;padding:80px 20px;text-align:center}
+.hero h1{font-size:2.5rem;margin:0 0 16px}
+.hero p{font-size:1.2rem;opacity:.9}
+.cta{display:inline-block;background:#06C755;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;margin-top:24px;font-size:1.1rem}
+.section{max-width:720px;margin:0 auto;padding:60px 20px}
+.feature{background:#fff;padding:24px;border-radius:12px;margin:16px 0;box-shadow:0 2px 10px rgba(0,0,0,.05)}
+.feature h3{margin-top:0;color:#2c3e50}
+.price{text-align:center;padding:40px 20px;background:#fff;border-radius:12px;box-shadow:0 2px 10px rgba(0,0,0,.05)}
+.price .amount{font-size:3rem;font-weight:bold;color:#e74c3c}
+footer{background:#2c3e50;color:#fff;padding:32px 20px;text-align:center;font-size:0.9rem}
+footer a{color:#fff;margin:0 12px}
+</style></head><body>
+<div class="hero">
+  <h1>📄 フリーランスBot</h1>
+  <p>LINEに一言送るだけで、請求書が30秒で完成。</p>
+  <a class="cta" href="https://line.me/R/">LINEで友達追加</a>
+</div>
+<div class="section">
+  <h2>3ステップで完成</h2>
+  <div class="feature"><h3>1. LINEで送る</h3><p>「田中商事に15万円の請求書、件名はWeb制作」</p></div>
+  <div class="feature"><h3>2. 内容を確認</h3><p>カード型で表示される内容を確認して「作成」をタップ</p></div>
+  <div class="feature"><h3>3. PDFをダウンロード</h3><p>適格請求書（インボイス制度対応）として発行</p></div>
+</div>
+<div class="section">
+  <h2>料金</h2>
+  <div class="price">
+    <h3>無料プラン</h3>
+    <div class="amount">¥0</div>
+    <p>月3枚まで</p>
+    <hr style="margin:24px 0">
+    <h3>プレミアムプラン</h3>
+    <div class="amount">¥980<span style="font-size:1rem">/月</span></div>
+    <p>無制限・優先サポート</p>
+  </div>
+</div>
+<footer>
+  <a href="/legal/tokushoho">特定商取引法に基づく表記</a>
+  <a href="/legal/privacy">プライバシーポリシー</a>
+  <a href="/legal/terms">利用規約</a>
+  <p style="margin-top:20px;opacity:.6">&copy; 2026 フリーランスBot</p>
+</footer>
 </body></html>`);
 });
 
