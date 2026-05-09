@@ -1,0 +1,22 @@
+{
+  "name": "freelance-line-bot",
+  "version": "1.0.0",
+  "description": "フリーランス向け請求書自動生成LINEボット",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@line/bot-sdk": "^11.0.0",
+    "better-sqlite3": "^12.9.0",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "node-cron": "^4.2.1",
+    "pdfkit": "^0.18.0",
+    "stripe": "^22.1.1"
+  }
+}
