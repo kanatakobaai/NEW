@@ -43,7 +43,11 @@ app.post('/webhook', webhookLimit, line.middleware(lineConfig), async (req, res)
         await handleFollow(client, event);
       }
     } catch (err) {
-      console.error('Event handling error:', err);
+      console.error(JSON.stringify({
+        level: 'error', msg: 'Event handling error',
+        error: err.message, eventType: event.type,
+        ts: new Date().toISOString(),
+      }));
     }
   }
 });
@@ -245,7 +249,13 @@ app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().
 
 // ── Error handler (no stack trace leaks) ─────────────
 app.use((err, req, res, next) => {
-  console.error('Unhandled:', err.message);
+  console.error(JSON.stringify({
+    level: 'error',
+    msg: err.message,
+    method: req.method,
+    path: req.path,
+    ts: new Date().toISOString(),
+  }));
   if (res.headersSent) return next(err);
   res.status(500).send('Internal Server Error');
 });
@@ -264,6 +274,30 @@ cron.schedule('0 3 * * *', () => {
     } catch (e) { /* ignore */ }
   }
   if (deleted > 0) console.log(`🧹 Cleaned up ${deleted} old PDFs`);
+});
+
+// ── Cron: daily SQLite backup (keep 7 days rolling) ──
+const DB_PATH = process.env.DATABASE_PATH || './data/db.sqlite';
+const BACKUP_DIR = path.join(path.dirname(DB_PATH), 'backups');
+cron.schedule('0 2 * * *', () => {
+  if (!fs.existsSync(DB_PATH)) return;
+  try {
+    if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
+    const stamp = new Date().toISOString().slice(0, 10);
+    fs.copyFileSync(DB_PATH, path.join(BACKUP_DIR, `db-${stamp}.sqlite`));
+
+    // Remove backups older than 7 days
+    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    for (const f of fs.readdirSync(BACKUP_DIR)) {
+      const fp = path.join(BACKUP_DIR, f);
+      try {
+        if (fs.statSync(fp).mtimeMs < cutoff) fs.unlinkSync(fp);
+      } catch (e) { /* ignore */ }
+    }
+    console.log(`💾 DB backup: db-${stamp}.sqlite`);
+  } catch (e) {
+    console.error('DB backup failed:', e.message);
+  }
 });
 
 // ── Start ─────────────────────────────────────────────

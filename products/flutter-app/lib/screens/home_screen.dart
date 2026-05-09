@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../models/invoice.dart';
 import '../services/storage_service.dart';
 import '../services/ad_service.dart';
+import '../services/iap_service.dart';
 import 'create_screen.dart';
 import 'settings_screen.dart';
 import 'invoice_detail_screen.dart';
@@ -19,17 +20,41 @@ class _HomeScreenState extends State<HomeScreen> {
   BannerAd? _bannerAd;
   final _yenFormat = NumberFormat.currency(locale: 'ja_JP', symbol: '¥', decimalDigits: 0);
   final _dateFormat = DateFormat('M/d');
+  final _iap = IapService();
 
   @override
   void initState() {
     super.initState();
     _bannerAd = AdService.createBannerAd();
+    _iap.onPurchaseSuccess = _onPurchaseSuccess;
+    _iap.onPurchaseError = _onPurchaseError;
   }
 
   @override
   void dispose() {
     _bannerAd?.dispose();
+    _iap.onPurchaseSuccess = null;
+    _iap.onPurchaseError = null;
     super.dispose();
+  }
+
+  void _onPurchaseSuccess() {
+    if (!mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('🎉 プレミアムプランへようこそ！無制限で作成できます'),
+        backgroundColor: Colors.green,
+        duration: Duration(seconds: 4),
+      ),
+    );
+  }
+
+  void _onPurchaseError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
+    );
   }
 
   @override
@@ -154,46 +179,65 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _showUpgradeDialog() {
     final remaining = StorageService.getRemainingFreeUses();
+    final product = _iap.product;
+    final priceLabel = product?.price ?? '¥980';
+
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('プレミアムプラン'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (remaining == 0)
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.orange[50],
-                  borderRadius: BorderRadius.circular(8),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('プレミアムプラン'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (remaining == 0)
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange[50],
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text('今月の無料枠を使い切りました',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
                 ),
-                child: const Text('今月の無料枠を使い切りました', style: TextStyle(fontWeight: FontWeight.bold)),
-              ),
-            const SizedBox(height: 12),
-            const Text('月額 ¥980', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            const Text('• 請求書を無制限に作成'),
-            const Text('• 広告を非表示'),
-            const Text('• 優先サポート'),
-            // ⚠ Removed rewarded-ad bypass: it cannibalized the ¥980 subscription
-            // (free app + rewarded ads gave near-unlimited usage at ¥10/mo per user
-            // vs ¥905/mo from a paid subscriber).
+              const SizedBox(height: 12),
+              Text('月額 $priceLabel',
+                  style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              const Text('• 請求書を無制限に作成'),
+              const Text('• 広告を非表示'),
+              const Text('• 優先サポート'),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                Navigator.pop(ctx);
+                await _iap.restorePurchases();
+              },
+              child: const Text('購入を復元'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('後で'),
+            ),
+            ElevatedButton(
+              onPressed: _iap.isPurchasing || !_iap.isAvailable
+                  ? null
+                  : () async {
+                      Navigator.pop(ctx);
+                      await _iap.buyPremium();
+                      if (mounted) setState(() {});
+                    },
+              child: _iap.isPurchasing
+                  ? const SizedBox(
+                      width: 20, height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Text('登録する'),
+            ),
           ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('後で')),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('App内課金は本番版で有効になります')),
-              );
-            },
-            child: const Text('登録する'),
-          ),
-        ],
       ),
     );
   }

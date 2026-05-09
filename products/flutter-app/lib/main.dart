@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'services/storage_service.dart';
 import 'services/ad_service.dart';
+import 'services/iap_service.dart';
 import 'screens/home_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await StorageService.init();
   await AdService.init();
+  await IapService().init();
   runApp(const FreelanceBotApp());
 }
 

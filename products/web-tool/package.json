@@ -17,6 +17,7 @@
     "express-session": "^1.18.1",
     "nodemailer": "^8.0.7",
     "pdfkit": "^0.18.0",
-    "stripe": "^22.1.1"
+    "stripe": "^22.1.1",
+    "node-cron": "^3.0.3"
   }
 }

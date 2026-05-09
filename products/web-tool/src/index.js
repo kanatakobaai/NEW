@@ -7,6 +7,7 @@ const rateLimit = require('express-rate-limit');
 const nodemailer = require('nodemailer');
 const path = require('path');
 const fs = require('fs');
+const cron = require('node-cron');
 const Database = require('better-sqlite3');
 const Stripe = require('stripe');
 const PDFDocument = require('pdfkit');
@@ -386,7 +387,14 @@ setInterval(() => {
 
 // ── Error handler ────────────────────────────────────
 app.use((err, req, res, next) => {
-  console.error('Unhandled error:', err.message);
+  console.error(JSON.stringify({
+    level: 'error',
+    msg: err.message,
+    code: err.code,
+    method: req.method,
+    path: req.path,
+    ts: new Date().toISOString(),
+  }));
   if (err.code === 'EBADCSRFTOKEN' || err.message?.includes('csrf')) {
     return res.status(403).send(layout('セキュリティエラー', '<div class="card"><h1>不正なリクエスト</h1><p><a href="/">トップへ戻る</a></p></div>'));
   }
@@ -445,6 +453,28 @@ function generatePDF(invoice, user, res) {
   }
   doc.end();
 }
+
+// ── Cron: daily SQLite backup (keep 7 days rolling) ──
+const BACKUP_DIR = path.join(path.dirname(dbPath), 'backups');
+cron.schedule('0 2 * * *', () => {
+  if (!fs.existsSync(dbPath)) return;
+  try {
+    if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
+    const stamp = new Date().toISOString().slice(0, 10);
+    fs.copyFileSync(dbPath, path.join(BACKUP_DIR, `db-${stamp}.sqlite`));
+
+    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    for (const f of fs.readdirSync(BACKUP_DIR)) {
+      const fp = path.join(BACKUP_DIR, f);
+      try {
+        if (fs.statSync(fp).mtimeMs < cutoff) fs.unlinkSync(fp);
+      } catch (e) { /* ignore */ }
+    }
+    console.log(`💾 DB backup: db-${stamp}.sqlite`);
+  } catch (e) {
+    console.error('DB backup failed:', e.message);
+  }
+});
 
 async function start() {
   try {
