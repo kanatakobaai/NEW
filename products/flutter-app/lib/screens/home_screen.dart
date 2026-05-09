@@ -177,26 +177,9 @@ class _HomeScreenState extends State<HomeScreen> {
             const Text('• 請求書を無制限に作成'),
             const Text('• 広告を非表示'),
             const Text('• 優先サポート'),
-            const SizedBox(height: 16),
-            if (remaining == 0) Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    icon: const Icon(Icons.video_library),
-                    label: const Text('広告を見て+1枚'),
-                    onPressed: () async {
-                      final earned = await AdService.showRewarded();
-                      if (earned && context.mounted) {
-                        Navigator.pop(context);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('+1枚 追加されました')),
-                        );
-                      }
-                    },
-                  ),
-                ),
-              ],
-            ),
+            // ⚠ Removed rewarded-ad bypass: it cannibalized the ¥980 subscription
+            // (free app + rewarded ads gave near-unlimited usage at ¥10/mo per user
+            // vs ¥905/mo from a paid subscriber).
           ],
         ),
         actions: [
