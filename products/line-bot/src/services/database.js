@@ -24,6 +24,13 @@ db.exec(`
     my_bank_info TEXT
   );
 
+  CREATE TABLE IF NOT EXISTS sessions (
+    line_user_id TEXT PRIMARY KEY,
+    mode TEXT,
+    data TEXT,
+    updated_at TEXT DEFAULT (datetime('now'))
+  );
+
   CREATE TABLE IF NOT EXISTS invoices (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     line_user_id TEXT NOT NULL,
@@ -115,5 +122,26 @@ function getInvoices(lineUserId, limit = 5) {
     .all(lineUserId, limit);
 }
 
-module.exports = { getUser, upsertUser, canUseService, incrementUsage, getRemainingFreeUses,
-  updateSubscription, updateUserProfile, saveInvoice, getInvoices };
+function getSession(lineUserId) {
+  const row = db.prepare('SELECT * FROM sessions WHERE line_user_id = ?').get(lineUserId);
+  if (!row) return null;
+  return { mode: row.mode, data: row.data ? JSON.parse(row.data) : {} };
+}
+
+function setSession(lineUserId, mode, data = {}) {
+  db.prepare(`
+    INSERT INTO sessions (line_user_id, mode, data, updated_at)
+    VALUES (?, ?, ?, datetime('now'))
+    ON CONFLICT(line_user_id) DO UPDATE SET mode=excluded.mode, data=excluded.data, updated_at=excluded.updated_at
+  `).run(lineUserId, mode, JSON.stringify(data));
+}
+
+function clearSession(lineUserId) {
+  db.prepare('DELETE FROM sessions WHERE line_user_id = ?').run(lineUserId);
+}
+
+module.exports = {
+  getUser, upsertUser, canUseService, incrementUsage, getRemainingFreeUses,
+  updateSubscription, updateUserProfile, saveInvoice, getInvoices,
+  getSession, setSession, clearSession,
+};
