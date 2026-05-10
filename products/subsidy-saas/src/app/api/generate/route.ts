@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { generateApplication, ApplicationInput } from "@/lib/claude";
 import { canGenerate, incrementUsage } from "@/lib/supabase";
 
+export const maxDuration = 120; // Vercel Pro: max 300s
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
