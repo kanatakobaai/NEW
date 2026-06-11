@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#05060f" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="description" content="NEON PULSE - 片手で遊ぶネオン反射神経アーケード" />
+  <title>NEON PULSE</title>
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <!-- HUD -->
+  <div id="hud" class="hidden">
+    <div id="score">0</div>
+    <div id="combo"></div>
+  </div>
+
+  <button id="muteBtn" aria-label="mute">🔊</button>
+
+  <!-- Menu -->
+  <div id="menu" class="overlay">
+    <h1 class="title">NEON<span>PULSE</span></h1>
+    <p class="tagline">迫りくる破片を、シールドで弾け。</p>
+    <button id="playBtn" class="btn">▶ PLAY</button>
+    <p class="best">BEST <span id="menuBest">0</span></p>
+    <div class="how">
+      <p>● 画面を触れてコアの周りのシールドを回転</p>
+      <p>● 破片を弾いてコンボを稼ぐ</p>
+      <p>● 1つでもコアに当たればゲームオーバー</p>
+    </div>
+  </div>
+
+  <!-- Game over -->
+  <div id="dead" class="overlay hidden">
+    <h2 class="dead-title">GAME OVER</h2>
+    <div class="stats">
+      <div class="stat"><span class="lbl">SCORE</span><span class="val" id="finalScore">0</span></div>
+      <div class="stat"><span class="lbl">BEST</span><span class="val" id="finalBest">0</span></div>
+      <div class="stat"><span class="lbl">MAX COMBO</span><span class="val" id="finalCombo">0</span></div>
+    </div>
+    <button id="retryBtn" class="btn">↻ RETRY</button>
+  </div>
+
+  <script type="module" src="./js/main.js"></script>
+</body>
+</html>
