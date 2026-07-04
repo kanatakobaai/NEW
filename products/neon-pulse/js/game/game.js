@@ -81,8 +81,11 @@ export class Game {
       this.h / 2 / Math.max(Math.abs(Math.sin(angle)), 1e-6)
     );
     const dist = edgeDist + 50;
+    // The player's reaction clock starts when the shard crosses the screen
+    // edge, so normalize the EDGE->SHIELD time (the actual visible reaction
+    // window), not spawn->core. The +50px off-screen lead-in is irrelevant.
     const travelTime = Math.max(0.8, 2.4 - this.elapsed * 0.032) * rand(0.9, 1.15);
-    const speed = dist / travelTime;
+    const speed = (edgeDist - this.shieldR) / travelTime;
     const palette = PALETTES[(Math.random() * PALETTES.length) | 0];
     hz.spawn(angle, dist, speed, palette);
     this.audio.spawn();
