@@ -1,0 +1,15 @@
+{
+  "name": "neon-pulse",
+  "version": "1.0.0",
+  "private": true,
+  "description": "片手で遊ぶネオン反射神経アーケード。迫りくる破片を、コアの周りのシールドを回転させて弾くゲーム。",
+  "scripts": {
+    "test": "node test/smoke.mjs",
+    "icons": "node test/gen-icons.mjs",
+    "record-ad": "node test/record-ad.mjs"
+  },
+  "devDependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "playwright-core": "^1.61.1"
+  }
+}

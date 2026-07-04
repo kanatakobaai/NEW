@@ -133,7 +133,7 @@ export class Game {
     this.flash *= Math.pow(0.88, rawDt * 60);
     this.corePulse += rawDt * 4;
 
-    if (this.state === State.PLAYING) this._difficulty(dt);
+    if (this.state === State.PLAYING && this.autoSpawn !== false) this._difficulty(dt);
 
     // Hazards
     for (const hz of this.hazards) {

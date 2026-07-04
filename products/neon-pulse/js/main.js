@@ -99,8 +99,86 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
-toMenu();
-requestAnimationFrame(frame);
+// ---- Demo / ad-recording mode ----
+const params = new URLSearchParams(location.search);
+const DEMO = params.get('demo') === '1';
+const RECORD = params.get('record') === '1';
+
+if (DEMO) {
+  const { DemoDirector } = await import('./game/demo.js');
+  // Hide DOM chrome; the director draws its own canvas HUD.
+  show(ui.menu, false); show(ui.dead, false); show(ui.hud, false);
+  ui.muteBtn.classList.add('hidden');
+
+  // Log sfx events (for offline audio rendering during capture).
+  const sfxLog = [];
+  let demoClock = 0;
+  const realAudio = audio;
+  const loggedAudio = new Proxy(realAudio, {
+    get(t, prop) {
+      const v = t[prop];
+      if (typeof v === 'function' && ['deflect', 'spawn', 'nearMiss', 'hit'].includes(prop)) {
+        return (...args) => { sfxLog.push({ t: demoClock, fn: prop, args }); return v.apply(t, args); };
+      }
+      return typeof v === 'function' ? v.bind(t) : v;
+    },
+  });
+  game.audio = loggedAudio;
+
+  game.autoSpawn = false;
+  game.start();
+  const director = new DemoDirector(game);
+
+  const demoRender = () => {
+    game.render(ctx);
+    director.renderOverlay(ctx);
+  };
+
+  if (RECORD) {
+    // Manual stepping API driven by the recorder (deterministic offline).
+    window.__demo = {
+      step(dt) {
+        demoClock += dt;
+        director.update(dt);
+        game.update(dt);
+        demoRender();
+        return { phase: director.phase, score: game.score, done: director.done, dead: game.state === State.DEAD };
+      },
+      sfx: () => sfxLog,
+      size(w, h, dpr) {
+        canvas.width = Math.floor(w * dpr);
+        canvas.height = Math.floor(h * dpr);
+        canvas.style.width = w + 'px';
+        canvas.style.height = h + 'px';
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        game.resize(w, h);
+      },
+    };
+  } else {
+    // Live demo: normal rAF loop with AI at the wheel.
+    audio.init();
+    let dLast = performance.now();
+    let dAcc = 0;
+    const demoFrame = (now) => {
+      let dt = (now - dLast) / 1000; dLast = now;
+      if (dt > 0.25) dt = 0.25;
+      dAcc += dt;
+      while (dAcc >= STEP) {
+        demoClock += STEP;
+        director.update(STEP);
+        game.update(STEP);
+        dAcc -= STEP;
+      }
+      demoRender();
+      if (director.done) { location.search = ''; return; }
+      requestAnimationFrame(demoFrame);
+    };
+    requestAnimationFrame(demoFrame);
+  }
+} else {
+  toMenu();
+  requestAnimationFrame(frame);
+}
 
 // Register service worker for PWA install (ignored on file://).
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
