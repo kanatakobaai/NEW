@@ -49,8 +49,8 @@ export class Game {
     this.w = w; this.h = h;
     this.cx = w / 2; this.cy = h / 2;
     const base = Math.min(w, h);
-    this.coreR = base * 0.085;
-    this.shieldR = base * 0.20;
+    this.coreR = base * 0.07;
+    this.shieldR = base * 0.15;
     this.input.setCenter(this.cx, this.cy);
   }
 
@@ -73,9 +73,16 @@ export class Game {
     const hz = this.hazards.find((h) => !h.active);
     if (!hz) return;
     const angle = rand(0, TAU);
-    const dist = Math.max(this.w, this.h) * 0.62 + 40;
-    // difficulty curve: speed ramps with elapsed time
-    const speed = 150 + Math.min(this.elapsed * 7, 360) + rand(-20, 40);
+    // Spawn just outside the actual screen edge along this angle, and give
+    // every shard the same time-to-core regardless of direction, so wide
+    // screens don't make side shards harder than vertical ones.
+    const edgeDist = Math.min(
+      this.w / 2 / Math.max(Math.abs(Math.cos(angle)), 1e-6),
+      this.h / 2 / Math.max(Math.abs(Math.sin(angle)), 1e-6)
+    );
+    const dist = edgeDist + 50;
+    const travelTime = Math.max(0.8, 2.4 - this.elapsed * 0.032) * rand(0.9, 1.15);
+    const speed = dist / travelTime;
     const palette = PALETTES[(Math.random() * PALETTES.length) | 0];
     hz.spawn(angle, dist, speed, palette);
     this.audio.spawn();
