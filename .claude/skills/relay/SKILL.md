@@ -64,9 +64,11 @@ allowed-tools: Bash(node tools/chatgpt-relay/relay.mjs *) Bash(git status *) Bas
   2. 指示の「完了条件」にあるテスト・ビルド・確認コマンドを自分で実行する。
   3. 合格なら `relay mark <ID> verified` → `git add -A -- . ':(exclude).claude' && git commit -m "relay <ID>: <タイトル>"`（`.claude/` の権限設定は含めない。push はしない）→ 次のタスクへ進む。
   4. 不合格なら `.relay/inbox/<ID>-fix-<n>.md` に「どこが・どう問題か・期待する状態・確かめ方」を具体的に書き、`relay prepare <ID> fix --file .relay/inbox/<ID>-fix-<n>.md` で送る。fix の上限に達したら `relay mark <ID> failed` として止まり、ユーザーに相談する。
-- **NEED_INPUT**: 報告の質問を読む。
-  - 目標と指示の範囲で決められる技術的な質問なら、`.relay/inbox/<ID>-answer-<n>.md` に回答を書き、`relay prepare <ID> answer --file ...` で送る。
-  - 費用・法務・公開・事業方針・好みに関わる判断は、止めてユーザーに聞く（勝手に決めない）。
+- **NEED_INPUT**: 報告の質問を読み、**自分で判断して答える**。方針・仕様・技術・デザインなどの判断はユーザーから任されているので、止めて聞かない。
+  - 判断の拠り所は、目標、指示、プロジェクトの資料（企画書、`JOBS_SYNC.md` など）。迷ったら、お金がかからない・公開しない・あとで変えやすい方を選ぶ。
+  - 答えが「お金を払う」「公開・デプロイ・push する」「外部サービスに登録や送信をする」ことになるなら、その操作は選ばず、無料・ローカルでできる代わり（仮のデータやモックなど）で進める。代わりがなく、その操作なしでは進めないときだけ止めてユーザーに頼む。
+  - `.relay/inbox/<ID>-answer-<n>.md` に回答を書き、`relay prepare <ID> answer --file ...` で送る。
+  - 決めたことは `operations/decisions/relay-decisions.md`（なければ作る）に「日付・タスク番号・質問・決めたこと・理由」を 1〜3 行で追記し、タスクのコミットに含める。終えるときの報告でも一覧で伝える。
 - **INVALID_REPORT**（最終行に STATUS がない）: 報告を読む。作業が止まっていれば `nudge` を送る。
 - **TIMEOUT**: probe を実行する。
   - `busy: true` なら、もう一度 wait する。ただし最終送信から 60 分を過ぎても応答中のままなら止める（ChatGPT 側で確認ボタン待ちになっている可能性がある）。

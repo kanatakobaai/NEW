@@ -93,6 +93,7 @@ Claude Code（監督）が ChatGPT（ブラウザのチャット＋Desktop Comma
 | 2026-04-19 | 作業はNEWフォルダ内のみで完結させるルール確立 | kanata |
 | 2026-09-23 | ChatGPT連携はAPI従量課金を使わず、チャット画面＋ファイル中継（A+B方式）で行う | kanata |
 | 2026-09-23 | ChatGPT 中継キットを `tools/chatgpt-relay/` に実装（Claude=監督、ChatGPT=実作業） | Jobs |
+| 2026-09-23 | relay 中の方針判断は Claude Code に一任（記録は `operations/decisions/relay-decisions.md`）。push・デプロイ・課金は引き続き止めて確認 | kanata |
 
 ---
 
