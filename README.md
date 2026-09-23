@@ -18,7 +18,9 @@ AIによって運営される会社プロジェクト。
 │   ├── decisions/      # 意思決定の記録
 │   └── reports/        # レポート・報告
 ├── communications/      # オーナーとCEO間のコミュニケーション記録
-└── projects/            # 進行中のプロジェクト
+├── projects/            # 進行中のプロジェクト
+└── tools/               # 業務ツール
+    └── chatgpt-relay/  # ChatGPT 中継（Claude Code が監督・ChatGPT が実作業。/relay で起動）
 ```
 
 ## 運営方針
