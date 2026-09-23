@@ -9,8 +9,25 @@
 | 項目 | 内容 |
 |------|------|
 | プロジェクトフォルダ | `C:\Users\kanat\claudecodeproject\NEW` |
-| 最終更新 | 2026-04-20 |
-| 更新者 | ローカルJobs |
+| 最終更新 | 2026-09-23 |
+| 更新者 | クラウドJobs |
+
+---
+
+## 進行中プロジェクト：ChatGPT 中継（relay）
+
+### フェーズ
+**実装・模擬テスト完了 → kanataのPCで実チャットでの試運転待ち**
+
+### 概要
+Claude Code（監督）が ChatGPT（ブラウザのチャット＋Desktop Commander）に設計・実装をさせ、指示出しを自動で回す。ChatGPT はプラン枠のみで使う（API従量課金なし）。
+- 使い方: `tools/chatgpt-relay/README.md`（`claude --chrome` で起動 → `/relay 〇〇を作って`）
+- 仕組み: `.relay/inbox/NNNN.md`（指示）→ ChatGPT が `.relay/outbox/NNNN.md`（報告、最終行 `STATUS: DONE / IN_PROGRESS / NEED_INPUT`）→ Claude が確認して「続けて」・修正・次の指示
+- 他のチャットに影響させない: ChatGPT の設定・メモリは触らない。登録URLと完全一致のタブにだけ入力。回答は画面から読まず報告ファイルで受け取る
+
+### 次のアクション
+- [ ] kanataのPCに取り込む（ブランチ `claude/claude-automation-chatgpt-integration-95f0w0`）
+- [ ] 作業用チャットを作り、小さなタスクで試運転（実際の ChatGPT 画面での送信は未検証）
 
 ---
 
@@ -74,6 +91,8 @@
 | 2026-04-19 | アプリ開発プロジェクト開始 | kanata |
 | 2026-04-19 | shopping-sorter-mobileを参考技術スタックとして採用方針 | Jobs |
 | 2026-04-19 | 作業はNEWフォルダ内のみで完結させるルール確立 | kanata |
+| 2026-09-23 | ChatGPT連携はAPI従量課金を使わず、チャット画面＋ファイル中継（A+B方式）で行う | kanata |
+| 2026-09-23 | ChatGPT 中継キットを `tools/chatgpt-relay/` に実装（Claude=監督、ChatGPT=実作業） | Jobs |
 
 ---
 

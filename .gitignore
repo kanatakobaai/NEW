@@ -27,3 +27,6 @@ build/
 
 # Claude Code（ローカル設定）
 .claude/settings.local.json
+
+# ChatGPT 中継（relay）の作業ファイル（指示・報告・状態）
+.relay/
